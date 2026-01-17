@@ -5,9 +5,33 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
+
+// Things 3 reference date (2001-01-01 00:00:00 UTC) - Core Data epoch
+var thingsReferenceDate = time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// dateToThingsDays converts a "YYYY-MM-DD" date to Things 3 days format
+func dateToThingsDays(dateStr string) (int64, error) {
+	t, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		return 0, err
+	}
+	days := t.Sub(thingsReferenceDate).Hours() / 24
+	return int64(days), nil
+}
+
+// ThingsDaysToDate converts Things 3 days to a time.Time
+func ThingsDaysToDate(days int64) time.Time {
+	return thingsReferenceDate.AddDate(0, 0, int(days))
+}
+
+// ThingsTimestampToTime converts Things 3 timestamp (seconds since 2001-01-01) to time.Time
+func ThingsTimestampToTime(ts float64) time.Time {
+	return thingsReferenceDate.Add(time.Duration(ts * float64(time.Second)))
+}
 
 // DefaultDBPath returns the default path to the Things 3 database
 func DefaultDBPath() (string, error) {
@@ -76,7 +100,7 @@ type Task struct {
 	Area         sql.NullString
 	Heading      sql.NullString
 	Trashed      bool
-	CreationDate float64
+	CreationDate sql.NullFloat64
 }
 
 // Area represents an area from the TMArea table
@@ -176,16 +200,27 @@ func (db *DB) scanTasks(rows *sql.Rows) ([]Task, error) {
 	return tasks, nil
 }
 
+// todayStartDate calculates today's startDate value in Things 3 format.
+// Things 3 encodes dates as: (year << 16) + (day_of_year + 32) * 128
+func todayStartDate() int64 {
+	now := time.Now()
+	year := int64(now.Year())
+	dayOfYear := int64(now.YearDay())
+	return (year << 16) + (dayOfYear+32)*128
+}
+
 // GetToday returns all tasks scheduled for today
 func (db *DB) GetToday() ([]Task, error) {
+	todayValue := todayStartDate()
 	query := baseTaskQuery + `
 WHERE status = 0
   AND trashed = 0
-  AND type = 0
+  AND type IN (0, 1)
   AND start = 1
+  AND startDate = ?
 ORDER BY todayIndex ASC
 `
-	rows, err := db.conn.Query(query)
+	rows, err := db.conn.Query(query, todayValue)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query today tasks: %w", err)
 	}
@@ -469,4 +504,96 @@ func (db *DB) GetTagByTitle(title string) (*Tag, error) {
 		return nil, fmt.Errorf("failed to get tag: %w", err)
 	}
 	return &t, nil
+}
+
+// GetLogbook returns completed tasks, optionally filtered by date range
+// startDate and endDate should be in "YYYY-MM-DD" format, or empty for no filter
+func (db *DB) GetLogbook(startDate, endDate string) ([]Task, error) {
+	query := baseTaskQuery + `
+WHERE status = 3
+  AND trashed = 0
+  AND type = 0
+`
+	var args []interface{}
+
+	// Things 3 stores dates as days since 2001-01-01 (Core Data reference date)
+	if startDate != "" {
+		query += " AND stopDate >= ?"
+		days, err := dateToThingsDays(startDate)
+		if err != nil {
+			return nil, fmt.Errorf("invalid start date: %w", err)
+		}
+		args = append(args, days)
+	}
+	if endDate != "" {
+		query += " AND stopDate <= ?"
+		days, err := dateToThingsDays(endDate)
+		if err != nil {
+			return nil, fmt.Errorf("invalid end date: %w", err)
+		}
+		args = append(args, days)
+	}
+
+	query += " ORDER BY stopDate DESC"
+
+	rows, err := db.conn.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query logbook: %w", err)
+	}
+	defer rows.Close()
+	return db.scanTasks(rows)
+}
+
+// GetTrashed returns trashed tasks
+func (db *DB) GetTrashed() ([]Task, error) {
+	query := baseTaskQuery + `
+WHERE trashed = 1
+  AND type = 0
+ORDER BY creationDate DESC
+`
+	rows, err := db.conn.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query trashed tasks: %w", err)
+	}
+	defer rows.Close()
+	return db.scanTasks(rows)
+}
+
+// Stats holds aggregated task statistics
+type Stats struct {
+	Inbox        int `json:"inbox"`
+	Today        int `json:"today"`
+	Upcoming     int `json:"upcoming"`
+	Anytime      int `json:"anytime"`
+	Someday      int `json:"someday"`
+	Completed    int `json:"completed"`
+	Projects     int `json:"projects"`
+	Areas        int `json:"areas"`
+	Tags         int `json:"tags"`
+}
+
+// GetStats returns aggregated counts for all lists
+func (db *DB) GetStats() (*Stats, error) {
+	stats := &Stats{}
+
+	// Get counts using efficient queries
+	queries := map[string]*int{
+		"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 0 AND project IS NULL AND heading IS NULL": &stats.Inbox,
+		"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 1": &stats.Today,
+		"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND startDate IS NOT NULL": &stats.Upcoming,
+		"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 0 AND startDate IS NULL AND (project IS NOT NULL OR area IS NOT NULL OR heading IS NOT NULL)": &stats.Anytime,
+		"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 2": &stats.Someday,
+		"SELECT COUNT(*) FROM TMTask WHERE status = 3 AND trashed = 0 AND type = 0": &stats.Completed,
+		"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 1": &stats.Projects,
+		"SELECT COUNT(*) FROM TMArea": &stats.Areas,
+		"SELECT COUNT(*) FROM TMTag": &stats.Tags,
+	}
+
+	for query, dest := range queries {
+		if err := db.conn.QueryRow(query).Scan(dest); err != nil {
+			return nil, fmt.Errorf("failed to get count: %w", err)
+		}
+	}
+
+	return stats, nil
 }

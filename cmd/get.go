@@ -46,9 +46,11 @@ var getCmd = &cobra.Command{
 
 		// Build detail struct
 		detail := TaskDetail{
-			UUID:      task.UUID,
-			Title:     task.Title,
-			CreatedAt: formatTimestamp(task.CreationDate),
+			UUID:  task.UUID,
+			Title: task.Title,
+		}
+		if task.CreationDate.Valid {
+			detail.CreatedAt = formatTimestamp(task.CreationDate.Float64)
 		}
 
 		if task.Notes.Valid {
