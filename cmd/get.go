@@ -161,11 +161,9 @@ var getCmd = &cobra.Command{
 	},
 }
 
-// formatTimestamp converts a Core Data timestamp (seconds since 2001-01-01) to a readable format
+// formatTimestamp converts a Unix timestamp to a readable format
 func formatTimestamp(timestamp float64) string {
-	// Core Data reference date is 2001-01-01 00:00:00 UTC
-	referenceDate := time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
-	t := referenceDate.Add(time.Duration(timestamp) * time.Second)
+	t := time.Unix(int64(timestamp), 0)
 	return t.Format("2006-01-02 15:04:05")
 }
 
