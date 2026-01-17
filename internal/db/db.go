@@ -577,20 +577,24 @@ func (db *DB) GetStats() (*Stats, error) {
 	stats := &Stats{}
 
 	// Get counts using efficient queries
-	queries := map[string]*int{
-		"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 0 AND project IS NULL AND heading IS NULL": &stats.Inbox,
-		"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 1": &stats.Today,
-		"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND startDate IS NOT NULL": &stats.Upcoming,
-		"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 0 AND startDate IS NULL AND (project IS NOT NULL OR area IS NOT NULL OR heading IS NOT NULL)": &stats.Anytime,
-		"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 2": &stats.Someday,
-		"SELECT COUNT(*) FROM TMTask WHERE status = 3 AND trashed = 0 AND type = 0": &stats.Completed,
-		"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 1": &stats.Projects,
-		"SELECT COUNT(*) FROM TMArea": &stats.Areas,
-		"SELECT COUNT(*) FROM TMTag": &stats.Tags,
+	todayValue := todayStartDate()
+	queries := []struct {
+		query string
+		dest  *int
+	}{
+		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 0 AND project IS NULL AND heading IS NULL", &stats.Inbox},
+		{fmt.Sprintf("SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type IN (0,1) AND start = 1 AND startDate = %d", todayValue), &stats.Today},
+		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND startDate IS NOT NULL", &stats.Upcoming},
+		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 0 AND startDate IS NULL AND (project IS NOT NULL OR area IS NOT NULL OR heading IS NOT NULL)", &stats.Anytime},
+		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 2", &stats.Someday},
+		{"SELECT COUNT(*) FROM TMTask WHERE status = 3 AND trashed = 0 AND type = 0", &stats.Completed},
+		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 1", &stats.Projects},
+		{"SELECT COUNT(*) FROM TMArea", &stats.Areas},
+		{"SELECT COUNT(*) FROM TMTag", &stats.Tags},
 	}
 
-	for query, dest := range queries {
-		if err := db.conn.QueryRow(query).Scan(dest); err != nil {
+	for _, q := range queries {
+		if err := db.conn.QueryRow(q.query).Scan(q.dest); err != nil {
 			return nil, fmt.Errorf("failed to get count: %w", err)
 		}
 	}

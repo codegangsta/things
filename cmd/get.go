@@ -169,12 +169,14 @@ func formatTimestamp(timestamp float64) string {
 	return t.Format("2006-01-02 15:04:05")
 }
 
-// formatThingsDate converts a Things date integer (YYYYMMDD) to a readable format
+// formatThingsDate converts a Things date integer to a readable format.
+// Things 3 encodes dates as: (year << 16) + (day_of_year + 32) * 128
 func formatThingsDate(date int64) string {
-	year := date / 10000
-	month := (date % 10000) / 100
-	day := date % 100
-	return fmt.Sprintf("%04d-%02d-%02d", year, month, day)
+	year := date >> 16
+	dayOfYear := ((date & 0xFFFF) / 128) - 32
+	// Convert day of year to month/day
+	t := time.Date(int(year), 1, 1, 0, 0, 0, 0, time.Local).AddDate(0, 0, int(dayOfYear)-1)
+	return t.Format("2006-01-02")
 }
 
 func init() {
