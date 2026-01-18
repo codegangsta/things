@@ -43,11 +43,7 @@ Examples:
 			}
 			return outputTasks(cmd.OutOrStdout(), tasks)
 		case "anytime":
-			tasks, err := database.GetAnytime()
-			if err != nil {
-				return err
-			}
-			return outputTasks(cmd.OutOrStdout(), tasks)
+			return anytimeCmd.RunE(cmd, args)
 		case "someday":
 			tasks, err := database.GetSomeday()
 			if err != nil {

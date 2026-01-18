@@ -264,32 +264,98 @@ ORDER BY startDate ASC
 	return db.scanTasks(rows)
 }
 
-// GetAnytime returns all tasks in the anytime list (not today, not someday)
-func (db *DB) GetAnytime() ([]Task, error) {
-	query := baseTaskQuery + `
+// AnytimeProject represents a project in the Anytime view with its top tasks
+type AnytimeProject struct {
+	Project Task   `json:"project"`
+	Tasks   []Task `json:"tasks"`
+}
+
+// AnytimeResult represents the full Anytime view
+type AnytimeResult struct {
+	Tasks    []Task           `json:"tasks"`    // Standalone tasks (no project)
+	Projects []AnytimeProject `json:"projects"` // Projects with their top tasks
+}
+
+// GetAnytime returns the Anytime view: standalone tasks and projects with top 3 tasks each
+func (db *DB) GetAnytime() (*AnytimeResult, error) {
+	result := &AnytimeResult{}
+
+	// Get standalone tasks: start=1 (anytime), no startDate, not in a project or heading
+	standaloneQuery := baseTaskQuery + `
 WHERE status = 0
   AND trashed = 0
   AND type = 0
-  AND start = 0
+  AND start = 1
   AND startDate IS NULL
-  AND (project IS NOT NULL OR area IS NOT NULL OR heading IS NOT NULL)
+  AND project IS NULL
+  AND heading IS NULL
 ORDER BY creationDate DESC
 `
-	rows, err := db.conn.Query(query)
+	rows, err := db.conn.Query(standaloneQuery)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query anytime tasks: %w", err)
+		return nil, fmt.Errorf("failed to query anytime standalone tasks: %w", err)
 	}
-	defer rows.Close()
-	return db.scanTasks(rows)
+	result.Tasks, err = db.scanTasks(rows)
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get anytime projects: start=1, no startDate
+	projectQuery := baseTaskQuery + `
+WHERE status = 0
+  AND trashed = 0
+  AND type = 1
+  AND start = 1
+  AND startDate IS NULL
+ORDER BY title ASC
+`
+	projRows, err := db.conn.Query(projectQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query anytime projects: %w", err)
+	}
+	projects, err := db.scanTasks(projRows)
+	projRows.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	// For each project, get top 3 tasks (including tasks under headings)
+	taskQuery := baseTaskQuery + `
+WHERE status = 0
+  AND trashed = 0
+  AND type = 0
+  AND (project = ? OR heading IN (SELECT uuid FROM TMTask WHERE type = 2 AND project = ?))
+ORDER BY [index] ASC
+LIMIT 3
+`
+	for _, proj := range projects {
+		taskRows, err := db.conn.Query(taskQuery, proj.UUID, proj.UUID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query tasks for project %s: %w", proj.UUID, err)
+		}
+		tasks, err := db.scanTasks(taskRows)
+		taskRows.Close()
+		if err != nil {
+			return nil, err
+		}
+		result.Projects = append(result.Projects, AnytimeProject{
+			Project: proj,
+			Tasks:   tasks,
+		})
+	}
+
+	return result, nil
 }
 
-// GetSomeday returns all tasks in the someday list
+// GetSomeday returns all tasks in the someday list (excluding those with a scheduled date)
 func (db *DB) GetSomeday() ([]Task, error) {
 	query := baseTaskQuery + `
 WHERE status = 0
   AND trashed = 0
   AND type = 0
   AND start = 2
+  AND startDate IS NULL
 ORDER BY creationDate DESC
 `
 	rows, err := db.conn.Query(query)
@@ -585,8 +651,8 @@ func (db *DB) GetStats() (*Stats, error) {
 		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 0 AND project IS NULL AND heading IS NULL", &stats.Inbox},
 		{fmt.Sprintf("SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type IN (0,1) AND start = 1 AND startDate = %d", todayValue), &stats.Today},
 		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND startDate IS NOT NULL", &stats.Upcoming},
-		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 0 AND startDate IS NULL AND (project IS NOT NULL OR area IS NOT NULL OR heading IS NOT NULL)", &stats.Anytime},
-		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 2", &stats.Someday},
+		{"SELECT (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 1 AND startDate IS NULL AND project IS NULL AND heading IS NULL) + (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 1 AND start = 1 AND startDate IS NULL)", &stats.Anytime},
+		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 2 AND startDate IS NULL", &stats.Someday},
 		{"SELECT COUNT(*) FROM TMTask WHERE status = 3 AND trashed = 0 AND type = 0", &stats.Completed},
 		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 1", &stats.Projects},
 		{"SELECT COUNT(*) FROM TMArea", &stats.Areas},
