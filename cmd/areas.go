@@ -1,9 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
@@ -16,15 +13,7 @@ var areasCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
-		if jsonOutput {
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(areas)
-		}
-
-		for _, area := range areas {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", area.UUID, area.Title)
-		}
-		return nil
+		return outputAreas(cmd.OutOrStdout(), areas)
 	},
 }
 

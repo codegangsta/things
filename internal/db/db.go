@@ -249,16 +249,18 @@ ORDER BY creationDate DESC
 	return db.scanTasks(rows)
 }
 
-// GetUpcoming returns all tasks with a scheduled start date
+// GetUpcoming returns all tasks with a scheduled start date in the future (not today)
 func (db *DB) GetUpcoming() ([]Task, error) {
+	todayValue := todayStartDate()
 	query := baseTaskQuery + `
 WHERE status = 0
   AND trashed = 0
   AND type = 0
   AND startDate IS NOT NULL
+  AND startDate > ?
 ORDER BY startDate ASC
 `
-	rows, err := db.conn.Query(query)
+	rows, err := db.conn.Query(query, todayValue)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query upcoming tasks: %w", err)
 	}

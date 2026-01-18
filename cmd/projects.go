@@ -1,9 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
@@ -16,15 +13,7 @@ var projectsCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
-		if jsonOutput {
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(projects)
-		}
-
-		for _, project := range projects {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", project.UUID, project.Title)
-		}
-		return nil
+		return outputProjects(cmd.OutOrStdout(), projects)
 	},
 }
 

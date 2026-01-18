@@ -219,3 +219,123 @@ func outputTasks(w io.Writer, tasks []db.Task) error {
 
 	return nil
 }
+
+// outputProjects handles formatting and outputting a list of projects
+func outputProjects(w io.Writer, projects []db.Task) error {
+	if limitOutput > 0 && len(projects) > limitOutput {
+		projects = projects[:limitOutput]
+	}
+
+	if jsonOutput {
+		return json.NewEncoder(w).Encode(projects)
+	}
+
+	if countOnly {
+		fmt.Fprintln(w, len(projects))
+		return nil
+	}
+
+	// Print header
+	if !briefOutput {
+		fmt.Fprintf(w, "%s  %s  %s\n",
+			padRight("ID", colWidthID),
+			padRight("TITLE", colWidthTitle),
+			"AREA")
+	}
+
+	for _, project := range projects {
+		title := stripEmojis(project.Title)
+
+		// Get area name
+		areaName := ""
+		if project.Area.Valid {
+			if area, err := database.GetAreaByUUID(project.Area.String); err == nil {
+				areaName = stripEmojis(area.Title)
+			}
+		}
+
+		if briefOutput {
+			fmt.Fprintf(w, "%s  %s\n", project.UUID, title)
+		} else {
+			titleDisplay := truncate(title, colWidthTitle)
+			fmt.Fprintf(w, "%s  %s  %s\n",
+				padRight(project.UUID, colWidthID),
+				padRight(titleDisplay, colWidthTitle),
+				areaName)
+		}
+	}
+
+	return nil
+}
+
+// outputAreas handles formatting and outputting a list of areas
+func outputAreas(w io.Writer, areas []db.Area) error {
+	if limitOutput > 0 && len(areas) > limitOutput {
+		areas = areas[:limitOutput]
+	}
+
+	if jsonOutput {
+		return json.NewEncoder(w).Encode(areas)
+	}
+
+	if countOnly {
+		fmt.Fprintln(w, len(areas))
+		return nil
+	}
+
+	// Print header
+	if !briefOutput {
+		fmt.Fprintf(w, "%s  %s\n",
+			padRight("ID", colWidthID),
+			"TITLE")
+	}
+
+	for _, area := range areas {
+		title := stripEmojis(area.Title)
+
+		if briefOutput {
+			fmt.Fprintf(w, "%s  %s\n", area.UUID, title)
+		} else {
+			fmt.Fprintf(w, "%s  %s\n",
+				padRight(area.UUID, colWidthID),
+				title)
+		}
+	}
+
+	return nil
+}
+
+// outputTags handles formatting and outputting a list of tags
+func outputTags(w io.Writer, tags []db.Tag) error {
+	if limitOutput > 0 && len(tags) > limitOutput {
+		tags = tags[:limitOutput]
+	}
+
+	if jsonOutput {
+		return json.NewEncoder(w).Encode(tags)
+	}
+
+	if countOnly {
+		fmt.Fprintln(w, len(tags))
+		return nil
+	}
+
+	// Print header
+	if !briefOutput {
+		fmt.Fprintf(w, "%s  %s\n",
+			padRight("ID", colWidthID),
+			"TITLE")
+	}
+
+	for _, tag := range tags {
+		if briefOutput {
+			fmt.Fprintf(w, "%s  %s\n", tag.UUID, tag.Title)
+		} else {
+			fmt.Fprintf(w, "%s  %s\n",
+				padRight(tag.UUID, colWidthID),
+				tag.Title)
+		}
+	}
+
+	return nil
+}
