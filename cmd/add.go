@@ -3,9 +3,9 @@ package cmd
 import (
 	"fmt"
 	"net/url"
-	"os/exec"
 	"strings"
 
+	"github.com/codegangsta/things/internal/callback"
 	"github.com/spf13/cobra"
 )
 
@@ -80,12 +80,29 @@ func addTask(title string) error {
 	encoded := strings.ReplaceAll(params.Encode(), "+", "%20")
 	thingsURL := fmt.Sprintf("things:///add?%s", encoded)
 
-	// Use macOS open command to trigger the URL scheme
-	cmd := exec.Command("open", thingsURL)
-	if err := cmd.Run(); err != nil {
+	// Fire-and-forget mode
+	if noWait {
+		if err := callback.Execute(thingsURL); err != nil {
+			return fmt.Errorf("failed to add task: %w", err)
+		}
+		fmt.Printf("Added: %s\n", title)
+		return nil
+	}
+
+	// Wait for callback confirmation
+	result, err := callback.ExecuteWithCallback(thingsURL, callbackTimeout)
+	if err != nil {
 		return fmt.Errorf("failed to add task: %w", err)
 	}
 
-	fmt.Printf("Added: %s\n", title)
+	if !result.Success {
+		return fmt.Errorf("failed to add task: %s", result.Error)
+	}
+
+	if len(result.IDs) > 0 {
+		fmt.Printf("Added: %s (ID: %s)\n", title, result.IDs[0])
+	} else {
+		fmt.Printf("Added: %s\n", title)
+	}
 	return nil
 }

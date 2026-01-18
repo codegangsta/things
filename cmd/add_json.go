@@ -6,9 +6,9 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"os/exec"
 	"strings"
 
+	"github.com/codegangsta/things/internal/callback"
 	"github.com/spf13/cobra"
 )
 
@@ -65,23 +65,33 @@ Examples:
 			return nil
 		}
 
+		var allIDs []string
 		for i, task := range tasks {
 			if task.Title == "" {
 				return fmt.Errorf("task %d: title is required", i+1)
 			}
 
-			if err := addJSONTask(task); err != nil {
+			ids, err := addJSONTask(task)
+			if err != nil {
 				return fmt.Errorf("task %d (%s): %w", i+1, task.Title, err)
 			}
-			fmt.Printf("Added: %s\n", task.Title)
+			allIDs = append(allIDs, ids...)
+			if len(ids) > 0 {
+				fmt.Printf("Added: %s (ID: %s)\n", task.Title, ids[0])
+			} else {
+				fmt.Printf("Added: %s\n", task.Title)
+			}
 		}
 
 		fmt.Printf("\nAdded %d tasks\n", len(tasks))
+		if len(allIDs) > 0 {
+			fmt.Printf("IDs: %s\n", strings.Join(allIDs, ", "))
+		}
 		return nil
 	},
 }
 
-func addJSONTask(task JSONTask) error {
+func addJSONTask(task JSONTask) ([]string, error) {
 	params := url.Values{}
 	params.Set("title", task.Title)
 
@@ -110,8 +120,25 @@ func addJSONTask(task JSONTask) error {
 	encoded := strings.ReplaceAll(params.Encode(), "+", "%20")
 	thingsURL := fmt.Sprintf("things:///add?%s", encoded)
 
-	cmd := exec.Command("open", thingsURL)
-	return cmd.Run()
+	// Fire-and-forget mode
+	if noWait {
+		if err := callback.Execute(thingsURL); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+
+	// Wait for callback confirmation
+	result, err := callback.ExecuteWithCallback(thingsURL, callbackTimeout)
+	if err != nil {
+		return nil, err
+	}
+
+	if !result.Success {
+		return nil, fmt.Errorf("%s", result.Error)
+	}
+
+	return result.IDs, nil
 }
 
 func init() {

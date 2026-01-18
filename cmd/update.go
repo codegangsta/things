@@ -3,9 +3,9 @@ package cmd
 import (
 	"fmt"
 	"net/url"
-	"os/exec"
 	"strings"
 
+	"github.com/codegangsta/things/internal/callback"
 	"github.com/spf13/cobra"
 )
 
@@ -121,9 +121,23 @@ func updateTask(id, token string) error {
 	encoded := strings.ReplaceAll(params.Encode(), "+", "%20")
 	thingsURL := fmt.Sprintf("things:///update?%s", encoded)
 
-	cmd := exec.Command("open", thingsURL)
-	if err := cmd.Run(); err != nil {
+	// Fire-and-forget mode
+	if noWait {
+		if err := callback.Execute(thingsURL); err != nil {
+			return fmt.Errorf("failed to update task %s: %w", id, err)
+		}
+		fmt.Printf("Updated: %s\n", id)
+		return nil
+	}
+
+	// Wait for callback confirmation
+	result, err := callback.ExecuteWithCallback(thingsURL, callbackTimeout)
+	if err != nil {
 		return fmt.Errorf("failed to update task %s: %w", id, err)
+	}
+
+	if !result.Success {
+		return fmt.Errorf("failed to update task %s: %s", id, result.Error)
 	}
 
 	fmt.Printf("Updated: %s\n", id)

@@ -3,10 +3,10 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/codegangsta/things/internal/callback"
 	"github.com/spf13/cobra"
 )
 
@@ -71,9 +71,23 @@ func completeTask(id, token string) error {
 	// Things URL scheme for completing a task (requires auth-token)
 	thingsURL := fmt.Sprintf("things:///update?id=%s&auth-token=%s&completed=true", id, token)
 
-	cmd := exec.Command("open", thingsURL)
-	if err := cmd.Run(); err != nil {
+	// Fire-and-forget mode
+	if noWait {
+		if err := callback.Execute(thingsURL); err != nil {
+			return fmt.Errorf("failed to complete task %s: %w", id, err)
+		}
+		fmt.Printf("Completed: %s\n", id)
+		return nil
+	}
+
+	// Wait for callback confirmation
+	result, err := callback.ExecuteWithCallback(thingsURL, callbackTimeout)
+	if err != nil {
 		return fmt.Errorf("failed to complete task %s: %w", id, err)
+	}
+
+	if !result.Success {
+		return fmt.Errorf("failed to complete task %s: %s", id, result.Error)
 	}
 
 	fmt.Printf("Completed: %s\n", id)

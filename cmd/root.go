@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/codegangsta/things/internal/db"
 	"github.com/spf13/cobra"
@@ -14,6 +15,10 @@ var (
 	countOnly   bool
 	limitOutput int
 	database    *db.DB
+
+	// Callback-related flags for write operations
+	noWait         bool
+	callbackTimeout time.Duration
 )
 
 var rootCmd = &cobra.Command{
@@ -59,4 +64,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&briefOutput, "brief", "b", false, "Brief output (title and tags only)")
 	rootCmd.PersistentFlags().BoolVarP(&countOnly, "count", "c", false, "Only show count of results")
 	rootCmd.PersistentFlags().IntVarP(&limitOutput, "limit", "l", 0, "Limit number of results (0 = no limit)")
+
+	// Callback-related flags for write operations
+	rootCmd.PersistentFlags().BoolVar(&noWait, "no-wait", false, "Don't wait for Things callback (fire-and-forget)")
+	rootCmd.PersistentFlags().DurationVar(&callbackTimeout, "timeout", 5*time.Second, "Timeout for waiting on Things callback")
 }

@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"os/exec"
 	"strconv"
 	"strings"
 
+	"github.com/codegangsta/things/internal/callback"
 	"github.com/codegangsta/things/internal/db"
 	"github.com/spf13/cobra"
 )
@@ -122,9 +122,23 @@ func addChecklistItem(taskID, itemText, token string) error {
 	encoded := strings.ReplaceAll(params.Encode(), "+", "%20")
 	thingsURL := fmt.Sprintf("things:///update?%s", encoded)
 
-	cmd := exec.Command("open", thingsURL)
-	if err := cmd.Run(); err != nil {
+	// Fire-and-forget mode
+	if noWait {
+		if err := callback.Execute(thingsURL); err != nil {
+			return fmt.Errorf("failed to add checklist item: %w", err)
+		}
+		fmt.Printf("Added checklist item to %s: %s\n", taskID, itemText)
+		return nil
+	}
+
+	// Wait for callback confirmation
+	result, err := callback.ExecuteWithCallback(thingsURL, callbackTimeout)
+	if err != nil {
 		return fmt.Errorf("failed to add checklist item: %w", err)
+	}
+
+	if !result.Success {
+		return fmt.Errorf("failed to add checklist item: %s", result.Error)
 	}
 
 	fmt.Printf("Added checklist item to %s: %s\n", taskID, itemText)
@@ -204,15 +218,30 @@ func setChecklistItemStatus(taskID string, index int, completed bool, token stri
 	encoded := strings.ReplaceAll(params.Encode(), "+", "%20")
 	thingsURL := fmt.Sprintf("things:///json?%s", encoded)
 
-	cmd := exec.Command("open", thingsURL)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to update checklist item: %w", err)
-	}
-
 	action := "Completed"
 	if !completed {
 		action = "Uncompleted"
 	}
+
+	// Fire-and-forget mode
+	if noWait {
+		if err := callback.Execute(thingsURL); err != nil {
+			return fmt.Errorf("failed to update checklist item: %w", err)
+		}
+		fmt.Printf("%s checklist item %d in %s: %s\n", action, index, taskID, items[index-1].Title)
+		return nil
+	}
+
+	// Wait for callback confirmation
+	result, err := callback.ExecuteWithCallback(thingsURL, callbackTimeout)
+	if err != nil {
+		return fmt.Errorf("failed to update checklist item: %w", err)
+	}
+
+	if !result.Success {
+		return fmt.Errorf("failed to update checklist item: %s", result.Error)
+	}
+
 	fmt.Printf("%s checklist item %d in %s: %s\n", action, index, taskID, items[index-1].Title)
 	return nil
 }
