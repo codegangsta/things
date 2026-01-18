@@ -5,8 +5,143 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/codegangsta/things/internal/db"
+	"github.com/mattn/go-runewidth"
+)
+
+// isEmoji returns true if the rune is an emoji or emoji-related character
+func isEmoji(r rune) bool {
+	// Variation selectors
+	if r == 0xFE0E || r == 0xFE0F {
+		return true
+	}
+	// Common emoji ranges
+	if r >= 0x1F300 && r <= 0x1F9FF { // Misc Symbols, Emoticons, etc.
+		return true
+	}
+	if r >= 0x2600 && r <= 0x26FF { // Misc Symbols (includes ☕)
+		return true
+	}
+	if r >= 0x2700 && r <= 0x27BF { // Dingbats
+		return true
+	}
+	if r >= 0x1F600 && r <= 0x1F64F { // Emoticons
+		return true
+	}
+	if r >= 0x1F680 && r <= 0x1F6FF { // Transport symbols
+		return true
+	}
+	if r >= 0x200D && r <= 0x200D { // Zero-width joiner
+		return true
+	}
+	return false
+}
+
+// stripEmojis removes all emoji characters from a string
+func stripEmojis(s string) string {
+	result := make([]rune, 0, len(s))
+	for _, r := range s {
+		if !isEmoji(r) {
+			result = append(result, r)
+		}
+	}
+	// Trim leading space if emoji was at start
+	return strings.TrimLeft(string(result), " ")
+}
+
+// stringWidth calculates display width
+func stringWidth(s string) int {
+	width := 0
+	for _, r := range s {
+		width += runewidth.RuneWidth(r)
+	}
+	return width
+}
+
+// truncate shortens a string to maxWidth display columns, adding "..." if truncated
+func truncate(s string, maxWidth int) string {
+	width := stringWidth(s)
+	if width <= maxWidth {
+		return s
+	}
+
+	// Manually truncate respecting display width
+	result := []rune{}
+	currentWidth := 0
+	targetWidth := maxWidth - 3 // leave room for "..."
+	if targetWidth < 0 {
+		targetWidth = maxWidth
+	}
+
+	for _, r := range s {
+		rw := runewidth.RuneWidth(r)
+		if currentWidth+rw > targetWidth {
+			break
+		}
+		result = append(result, r)
+		currentWidth += rw
+	}
+
+	if maxWidth > 3 {
+		return string(result) + "..."
+	}
+	return string(result)
+}
+
+// padRight pads a string to the given display width
+func padRight(s string, width int) string {
+	w := stringWidth(s)
+	if w >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-w)
+}
+
+// decodeStartDate decodes Things 3 startDate format: (year << 16) + (dayOfYear+32)*128
+func decodeStartDate(encoded int64) time.Time {
+	year := int(encoded >> 16)
+	dayOfYear := int((encoded&0xFFFF)/128) - 32
+	// Create date from year and day of year
+	return time.Date(year, 1, 1, 0, 0, 0, 0, time.Local).AddDate(0, 0, dayOfYear-1)
+}
+
+// formatWhen returns a human-readable "when" value for a task
+func formatWhen(task db.Task) string {
+	// Check if there's a specific start date
+	if task.StartDate.Valid {
+		date := decodeStartDate(task.StartDate.Int64)
+		now := time.Now()
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+		tomorrow := today.AddDate(0, 0, 1)
+
+		if date.Year() == today.Year() && date.YearDay() == today.YearDay() {
+			return "today"
+		}
+		if date.Year() == tomorrow.Year() && date.YearDay() == tomorrow.YearDay() {
+			return "tomorrow"
+		}
+		return date.Format("Jan 2")
+	}
+
+	// Fall back to start type
+	switch task.Start {
+	case db.StartTypeToday:
+		return "anytime"
+	case db.StartTypeSomeday:
+		return "someday"
+	default:
+		return "-"
+	}
+}
+
+// Column widths for table output
+const (
+	colWidthID    = 22
+	colWidthTitle = 45
+	colWidthList  = 20
+	colWidthTags  = 15
 )
 
 // outputTasks handles formatting and outputting a list of tasks
@@ -26,22 +161,61 @@ func outputTasks(w io.Writer, tasks []db.Task) error {
 		return nil
 	}
 
+	// Print header
+	if !briefOutput {
+		fmt.Fprintf(w, "%s  %s  %s  %s  %s\n",
+			padRight("ID", colWidthID),
+			padRight("TITLE", colWidthTitle),
+			padRight("LIST", colWidthList),
+			padRight("TAGS", colWidthTags),
+			"WHEN")
+	}
+
 	for _, task := range tasks {
-		if briefOutput {
-			// Get tags for this task
-			tags, _ := database.GetTaskTags(task.UUID)
-			tagStrs := make([]string, len(tags))
-			for i, t := range tags {
-				tagStrs[i] = t.Title
+		// Get tags for this task
+		tags, _ := database.GetTaskTags(task.UUID)
+		tagStrs := make([]string, len(tags))
+		for i, t := range tags {
+			tagStrs[i] = t.Title
+		}
+		tagsStr := strings.Join(tagStrs, ", ")
+
+		// Get list name (project or area), strip emojis
+		listName := ""
+		if task.Project.Valid {
+			if proj, err := database.GetTask(task.Project.String); err == nil {
+				listName = stripEmojis(proj.Title)
 			}
+		} else if task.Area.Valid {
+			if area, err := database.GetAreaByUUID(task.Area.String); err == nil {
+				listName = stripEmojis(area.Title)
+			}
+		}
+
+		// Strip emojis from title for clean terminal output
+		title := stripEmojis(task.Title)
+
+		if briefOutput {
+			// Brief: just ID, title, and tags inline
 			if len(tagStrs) > 0 {
-				fmt.Fprintf(w, "%s\t%s (%s)\n", task.UUID, task.Title, strings.Join(tagStrs, ", "))
+				fmt.Fprintf(w, "%s  %s (%s)\n", task.UUID, title, tagsStr)
 			} else {
-				fmt.Fprintf(w, "%s\t%s\n", task.UUID, task.Title)
+				fmt.Fprintf(w, "%s  %s\n", task.UUID, title)
 			}
 		} else {
-			fmt.Fprintf(w, "%s\t%s\n", task.UUID, task.Title)
+			// Full table format with proper padding
+			titleDisplay := truncate(title, colWidthTitle)
+			listDisplay := truncate(listName, colWidthList)
+			tagsDisplay := truncate(tagsStr, colWidthTags)
+			when := formatWhen(task)
+			fmt.Fprintf(w, "%s  %s  %s  %s  %s\n",
+				padRight(task.UUID, colWidthID),
+				padRight(titleDisplay, colWidthTitle),
+				padRight(listDisplay, colWidthList),
+				padRight(tagsDisplay, colWidthTags),
+				when)
 		}
 	}
+
 	return nil
 }

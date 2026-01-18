@@ -16,6 +16,8 @@ var (
 	updateDeadline string
 	updateTags     []string
 	updateAddTags  []string
+	updateList     string
+	updateHeading  string
 	appendNotes    bool
 )
 
@@ -32,7 +34,9 @@ Examples:
   things update ABC123 --notes "Updated context"
   things update ABC123 --notes "Additional info" --append
   things update ABC123 --add-tags "@phone,5m"
-  things update ABC123 --title "New title" --when tomorrow`,
+  things update ABC123 --title "New title" --when tomorrow
+  things update ABC123 --list "Work"
+  things update ABC123 --list "Project Name" --heading "Phase 1"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		token, err := getAuthToken()
@@ -67,6 +71,8 @@ func init() {
 	updateCmd.Flags().StringVarP(&updateDeadline, "deadline", "d", "", "Deadline date (YYYY-MM-DD)")
 	updateCmd.Flags().StringSliceVar(&updateTags, "tags", nil, "Replace all tags (comma-separated)")
 	updateCmd.Flags().StringSliceVar(&updateAddTags, "add-tags", nil, "Add tags without removing existing (comma-separated)")
+	updateCmd.Flags().StringVar(&updateList, "list", "", "Move to a project or area by name")
+	updateCmd.Flags().StringVar(&updateHeading, "heading", "", "Move under a heading within a project")
 }
 
 func updateTask(id, token string) error {
@@ -91,6 +97,12 @@ func updateTask(id, token string) error {
 	}
 	if len(updateAddTags) > 0 {
 		params.Set("add-tags", strings.Join(updateAddTags, ","))
+	}
+	if updateList != "" {
+		params.Set("list", updateList)
+	}
+	if updateHeading != "" {
+		params.Set("heading", updateHeading)
 	}
 
 	// Replace + with %20 since Things URL scheme expects %20 for spaces

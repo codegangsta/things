@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"encoding/json"
-	"fmt"
-
+	"github.com/codegangsta/things/internal/db"
 	"github.com/spf13/cobra"
 )
 
@@ -17,35 +15,14 @@ var anytimeCmd = &cobra.Command{
 			return err
 		}
 
-		w := cmd.OutOrStdout()
-
-		if jsonOutput {
-			return json.NewEncoder(w).Encode(result)
-		}
-
-		if countOnly {
-			total := len(result.Tasks)
-			for _, p := range result.Projects {
-				total += len(p.Tasks)
-			}
-			fmt.Fprintln(w, total)
-			return nil
-		}
-
-		// Output standalone tasks
-		for _, task := range result.Tasks {
-			fmt.Fprintf(w, "%s\t%s\n", task.UUID, task.Title)
-		}
-
-		// Output projects with their tasks
+		// Flatten all tasks into a single list
+		var tasks []db.Task
+		tasks = append(tasks, result.Tasks...)
 		for _, p := range result.Projects {
-			fmt.Fprintf(w, "\n## %s\n", p.Project.Title)
-			for _, task := range p.Tasks {
-				fmt.Fprintf(w, "%s\t  %s\n", task.UUID, task.Title)
-			}
+			tasks = append(tasks, p.Tasks...)
 		}
 
-		return nil
+		return outputTasks(cmd.OutOrStdout(), tasks)
 	},
 }
 
