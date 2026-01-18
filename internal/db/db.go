@@ -115,6 +115,13 @@ type Tag struct {
 	Title string
 }
 
+// ChecklistItem represents a checklist item from the TMChecklistItem table
+type ChecklistItem struct {
+	UUID   string
+	Title  string
+	Status TaskStatus
+}
+
 // DB provides read-only access to the Things 3 database
 type DB struct {
 	conn *sql.DB
@@ -386,6 +393,23 @@ ORDER BY title ASC
 	return db.scanTasks(rows)
 }
 
+// GetProjectsInArea returns all active projects in a specific area
+func (db *DB) GetProjectsInArea(areaUUID string) ([]Task, error) {
+	query := baseTaskQuery + `
+WHERE status = 0
+  AND trashed = 0
+  AND type = 1
+  AND area = ?
+ORDER BY title ASC
+`
+	rows, err := db.conn.Query(query, areaUUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query area projects: %w", err)
+	}
+	defer rows.Close()
+	return db.scanTasks(rows)
+}
+
 // GetAreas returns all areas
 func (db *DB) GetAreas() ([]Area, error) {
 	query := `SELECT uuid, title FROM TMArea ORDER BY title ASC`
@@ -444,23 +468,6 @@ func (db *DB) GetTask(uuid string) (*Task, error) {
 		return nil, fmt.Errorf("failed to get task: %w", err)
 	}
 	return task, nil
-}
-
-// GetTasksInProject returns all tasks in a specific project
-func (db *DB) GetTasksInProject(projectUUID string) ([]Task, error) {
-	query := baseTaskQuery + `
-WHERE status = 0
-  AND trashed = 0
-  AND type = 0
-  AND project = ?
-ORDER BY todayIndex ASC, creationDate ASC
-`
-	rows, err := db.conn.Query(query, projectUUID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query project tasks: %w", err)
-	}
-	defer rows.Close()
-	return db.scanTasks(rows)
 }
 
 // GetTasksInArea returns all tasks in a specific area
@@ -691,4 +698,48 @@ func (db *DB) GetStats() (*Stats, error) {
 	}
 
 	return stats, nil
+}
+
+// GetChecklistItems returns all checklist items for a specific task
+func (db *DB) GetChecklistItems(taskUUID string) ([]ChecklistItem, error) {
+	query := `
+SELECT uuid, title, status
+FROM TMChecklistItem
+WHERE task = ?
+ORDER BY [index] ASC
+`
+	rows, err := db.conn.Query(query, taskUUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query checklist items: %w", err)
+	}
+	defer rows.Close()
+
+	var items []ChecklistItem
+	for rows.Next() {
+		var item ChecklistItem
+		if err := rows.Scan(&item.UUID, &item.Title, &item.Status); err != nil {
+			return nil, fmt.Errorf("failed to scan checklist item: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating checklist items: %w", err)
+	}
+	return items, nil
+}
+
+// GetAllTasksInProject returns all tasks in a project (including completed and canceled)
+func (db *DB) GetAllTasksInProject(projectUUID string) ([]Task, error) {
+	query := baseTaskQuery + `
+WHERE trashed = 0
+  AND type = 0
+  AND (project = ? OR heading IN (SELECT uuid FROM TMTask WHERE type = 2 AND project = ?))
+ORDER BY [index] ASC
+`
+	rows, err := db.conn.Query(query, projectUUID, projectUUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query project tasks: %w", err)
+	}
+	defer rows.Close()
+	return db.scanTasks(rows)
 }
