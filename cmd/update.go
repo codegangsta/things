@@ -10,15 +10,17 @@ import (
 )
 
 var (
-	updateTitle    string
-	updateNotes    string
-	updateWhen     string
-	updateDeadline string
-	updateTags     []string
-	updateAddTags  []string
-	updateList     string
-	updateHeading  string
-	appendNotes    bool
+	updateTitle            string
+	updateNotes            string
+	updateWhen             string
+	updateDeadline         string
+	updateTags             []string
+	updateAddTags          []string
+	updateList             string
+	updateHeading          string
+	appendNotes            bool
+	updateAppendChecklist  []string
+	updatePrependChecklist []string
 )
 
 var updateCmd = &cobra.Command{
@@ -36,7 +38,9 @@ Examples:
   things update ABC123 --add-tags "@phone,5m"
   things update ABC123 --title "New title" --when tomorrow
   things update ABC123 --list "Work"
-  things update ABC123 --list "Project Name" --heading "Phase 1"`,
+  things update ABC123 --list "Project Name" --heading "Phase 1"
+  things update ABC123 --append-checklist "New item"
+  things update ABC123 --prepend-checklist "First item"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		token, err := getAuthToken()
@@ -73,6 +77,8 @@ func init() {
 	updateCmd.Flags().StringSliceVar(&updateAddTags, "add-tags", nil, "Add tags without removing existing (comma-separated)")
 	updateCmd.Flags().StringVar(&updateList, "list", "", "Move to a project or area by name")
 	updateCmd.Flags().StringVar(&updateHeading, "heading", "", "Move under a heading within a project")
+	updateCmd.Flags().StringArrayVar(&updateAppendChecklist, "append-checklist", nil, "Add checklist items to the end (can be specified multiple times)")
+	updateCmd.Flags().StringArrayVar(&updatePrependChecklist, "prepend-checklist", nil, "Add checklist items to the beginning (can be specified multiple times)")
 }
 
 func updateTask(id, token string) error {
@@ -103,6 +109,12 @@ func updateTask(id, token string) error {
 	}
 	if updateHeading != "" {
 		params.Set("heading", updateHeading)
+	}
+	if len(updateAppendChecklist) > 0 {
+		params.Set("append-checklist-items", strings.Join(updateAppendChecklist, "\n"))
+	}
+	if len(updatePrependChecklist) > 0 {
+		params.Set("prepend-checklist-items", strings.Join(updatePrependChecklist, "\n"))
 	}
 
 	// Replace + with %20 since Things URL scheme expects %20 for spaces

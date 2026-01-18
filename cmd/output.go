@@ -432,17 +432,20 @@ func outputChecklistItems(w io.Writer, items []db.ChecklistItem) error {
 
 	// Print header
 	if !briefOutput {
-		fmt.Fprintf(w, "%s  %s\n",
+		fmt.Fprintf(w, "%s  %s  %s\n",
+			padRight("#", 3),
 			padRight("STATUS", 10),
 			"TITLE")
 	}
 
-	for _, item := range items {
+	for i, item := range items {
 		status := formatStatus(item.Status)
+		index := fmt.Sprintf("%d", i+1) // 1-based index for user-friendliness
 		if briefOutput {
-			fmt.Fprintf(w, "[%s] %s\n", status, item.Title)
+			fmt.Fprintf(w, "%s. [%s] %s\n", index, status, item.Title)
 		} else {
-			fmt.Fprintf(w, "%s  %s\n",
+			fmt.Fprintf(w, "%s  %s  %s\n",
+				padRight(index, 3),
 				padRight(status, 10),
 				item.Title)
 		}

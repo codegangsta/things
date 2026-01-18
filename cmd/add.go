@@ -10,12 +10,13 @@ import (
 )
 
 var (
-	addNotes    string
-	addWhen     string
-	addDeadline string
-	addTags     []string
-	addList     string
-	addHeading  string
+	addNotes     string
+	addWhen      string
+	addDeadline  string
+	addTags      []string
+	addList      string
+	addHeading   string
+	addChecklist []string
 )
 
 var addCmd = &cobra.Command{
@@ -27,7 +28,8 @@ Examples:
   things add "Buy groceries"
   things add "Call mom" --when today
   things add "Project deadline" --deadline 2024-12-31
-  things add "Work task" --list "Work" --tags "urgent,important"`,
+  things add "Work task" --list "Work" --tags "urgent,important"
+  things add "Shopping" --checklist "Milk" --checklist "Eggs" --checklist "Bread"`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		title := strings.Join(args, " ")
@@ -44,6 +46,7 @@ func init() {
 	addCmd.Flags().StringSliceVarP(&addTags, "tags", "t", nil, "Tags to apply (comma-separated)")
 	addCmd.Flags().StringVar(&addList, "list", "", "Project or area name to add to")
 	addCmd.Flags().StringVar(&addHeading, "heading", "", "Heading within a project")
+	addCmd.Flags().StringArrayVar(&addChecklist, "checklist", nil, "Checklist items (can be specified multiple times)")
 }
 
 func addTask(title string) error {
@@ -68,6 +71,9 @@ func addTask(title string) error {
 	}
 	if addHeading != "" {
 		params.Set("heading", addHeading)
+	}
+	if len(addChecklist) > 0 {
+		params.Set("checklist-items", strings.Join(addChecklist, "\n"))
 	}
 
 	// Replace + with %20 since Things URL scheme expects %20 for spaces
