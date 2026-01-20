@@ -25,6 +25,9 @@ type Result struct {
 // DefaultTimeout is the default time to wait for a callback response.
 const DefaultTimeout = 5 * time.Second
 
+// autoCloseHTML is returned to the browser to automatically close the callback tab.
+const autoCloseHTML = `<!DOCTYPE html><html><body><script>window.close()</script></body></html>`
+
 // ExecuteWithCallback executes a Things URL scheme command and waits for a callback.
 // It starts a temporary HTTP server, adds x-callback-url parameters to the Things URL,
 // opens the URL, and waits for Things to call back with the result.
@@ -64,7 +67,9 @@ func ExecuteWithCallback(thingsURL string, timeout time.Duration) (*Result, erro
 			}
 		}
 
+		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(autoCloseHTML))
 		select {
 		case resultCh <- result:
 		default:
@@ -79,7 +84,9 @@ func ExecuteWithCallback(thingsURL string, timeout time.Duration) (*Result, erro
 		if result.Error == "" {
 			result.Error = "unknown error from Things"
 		}
+		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(autoCloseHTML))
 		select {
 		case resultCh <- result:
 		default:
@@ -91,7 +98,9 @@ func ExecuteWithCallback(thingsURL string, timeout time.Duration) (*Result, erro
 			Success: false,
 			Error:   "operation cancelled by user",
 		}
+		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(autoCloseHTML))
 		select {
 		case resultCh <- result:
 		default:
