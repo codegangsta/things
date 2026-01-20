@@ -21,6 +21,8 @@ var (
 	appendNotes            bool
 	updateAppendChecklist  []string
 	updatePrependChecklist []string
+	updateComplete         bool
+	updateCancel           bool
 )
 
 var updateCmd = &cobra.Command{
@@ -40,7 +42,9 @@ Examples:
   things update ABC123 --list "Work"
   things update ABC123 --list "Project Name" --heading "Phase 1"
   things update ABC123 --append-checklist "New item"
-  things update ABC123 --prepend-checklist "First item"`,
+  things update ABC123 --prepend-checklist "First item"
+  things update ABC123 --complete
+  things update ABC123 --cancel`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		token, err := getAuthToken()
@@ -79,6 +83,8 @@ func init() {
 	updateCmd.Flags().StringVar(&updateHeading, "heading", "", "Move under a heading within a project")
 	updateCmd.Flags().StringArrayVar(&updateAppendChecklist, "append-checklist", nil, "Add checklist items to the end (can be specified multiple times)")
 	updateCmd.Flags().StringArrayVar(&updatePrependChecklist, "prepend-checklist", nil, "Add checklist items to the beginning (can be specified multiple times)")
+	updateCmd.Flags().BoolVar(&updateComplete, "complete", false, "Mark task as complete")
+	updateCmd.Flags().BoolVar(&updateCancel, "cancel", false, "Mark task as canceled")
 }
 
 func updateTask(id, token string) error {
@@ -115,6 +121,12 @@ func updateTask(id, token string) error {
 	}
 	if len(updatePrependChecklist) > 0 {
 		params.Set("prepend-checklist-items", strings.Join(updatePrependChecklist, "\n"))
+	}
+	if updateComplete {
+		params.Set("completed", "true")
+	}
+	if updateCancel {
+		params.Set("canceled", "true")
 	}
 
 	// Replace + with %20 since Things URL scheme expects %20 for spaces

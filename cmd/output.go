@@ -140,9 +140,20 @@ func formatWhen(task db.Task) string {
 const (
 	colWidthID    = 22
 	colWidthTitle = 45
+	colWidthType  = 7
 	colWidthList  = 20
 	colWidthTags  = 15
 )
+
+// taskTypeString returns a human-readable string for the task type
+func taskTypeString(t db.TaskType) string {
+	switch t {
+	case db.TaskTypeProject:
+		return "project"
+	default:
+		return "task"
+	}
+}
 
 // outputTasks handles formatting and outputting a list of tasks
 // respecting the global flags: jsonOutput, briefOutput, countOnly, limitOutput
@@ -163,9 +174,10 @@ func outputTasks(w io.Writer, tasks []db.Task) error {
 
 	// Print header
 	if !briefOutput {
-		fmt.Fprintf(w, "%s  %s  %s  %s  %s\n",
+		fmt.Fprintf(w, "%s  %s  %s  %s  %s  %s\n",
 			padRight("ID", colWidthID),
 			padRight("TITLE", colWidthTitle),
+			padRight("TYPE", colWidthType),
 			padRight("LIST", colWidthList),
 			padRight("TAGS", colWidthTags),
 			"WHEN")
@@ -205,12 +217,14 @@ func outputTasks(w io.Writer, tasks []db.Task) error {
 		} else {
 			// Full table format with proper padding
 			titleDisplay := truncate(title, colWidthTitle)
+			typeDisplay := taskTypeString(task.Type)
 			listDisplay := truncate(listName, colWidthList)
 			tagsDisplay := truncate(tagsStr, colWidthTags)
 			when := formatWhen(task)
-			fmt.Fprintf(w, "%s  %s  %s  %s  %s\n",
+			fmt.Fprintf(w, "%s  %s  %s  %s  %s  %s\n",
 				padRight(task.UUID, colWidthID),
 				padRight(titleDisplay, colWidthTitle),
+				padRight(typeDisplay, colWidthType),
 				padRight(listDisplay, colWidthList),
 				padRight(tagsDisplay, colWidthTags),
 				when)

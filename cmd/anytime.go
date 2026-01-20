@@ -15,10 +15,11 @@ var anytimeCmd = &cobra.Command{
 			return err
 		}
 
-		// Flatten all tasks into a single list
+		// Flatten tasks and projects into a single list
 		var tasks []db.Task
 		tasks = append(tasks, result.Tasks...)
 		for _, p := range result.Projects {
+			tasks = append(tasks, p.Project)
 			tasks = append(tasks, p.Tasks...)
 		}
 

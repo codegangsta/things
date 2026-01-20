@@ -292,6 +292,7 @@ func (db *DB) GetAnytime() (*AnytimeResult, error) {
 	result := &AnytimeResult{}
 
 	// Get standalone tasks: start=1 (anytime), no startDate, not in a project or heading
+	// Ordered by area index
 	standaloneQuery := baseTaskQuery + `
 WHERE status = 0
   AND trashed = 0
@@ -300,7 +301,9 @@ WHERE status = 0
   AND startDate IS NULL
   AND project IS NULL
   AND heading IS NULL
-ORDER BY creationDate DESC
+ORDER BY
+  COALESCE((SELECT [index] FROM TMArea WHERE uuid = TMTask.area), 999999) ASC,
+  title ASC
 `
 	rows, err := db.conn.Query(standaloneQuery)
 	if err != nil {
@@ -313,13 +316,16 @@ ORDER BY creationDate DESC
 	}
 
 	// Get anytime projects: start=1, no startDate
+	// Ordered by area index
 	projectQuery := baseTaskQuery + `
 WHERE status = 0
   AND trashed = 0
   AND type = 1
   AND start = 1
   AND startDate IS NULL
-ORDER BY title ASC
+ORDER BY
+  COALESCE((SELECT [index] FROM TMArea WHERE uuid = TMTask.area), 999999) ASC,
+  title ASC
 `
 	projRows, err := db.conn.Query(projectQuery)
 	if err != nil {
@@ -331,11 +337,13 @@ ORDER BY title ASC
 		return nil, err
 	}
 
-	// For each project, get top 3 tasks (including tasks under headings)
+	// For each project, get top 3 available tasks (including tasks under headings)
+	// Only include tasks that are "anytime" (start=1) or have no start classification (start=0)
 	taskQuery := baseTaskQuery + `
 WHERE status = 0
   AND trashed = 0
   AND type = 0
+  AND start IN (0, 1)
   AND (project = ? OR heading IN (SELECT uuid FROM TMTask WHERE type = 2 AND project = ?))
 ORDER BY [index] ASC
 LIMIT 3
@@ -359,22 +367,68 @@ LIMIT 3
 	return result, nil
 }
 
-// GetSomeday returns all tasks in the someday list (excluding those with a scheduled date)
-func (db *DB) GetSomeday() ([]Task, error) {
-	query := baseTaskQuery + `
+// SomedayResult represents the full Someday view
+type SomedayResult struct {
+	Tasks    []Task `json:"tasks"`    // Standalone tasks
+	Projects []Task `json:"projects"` // Someday projects
+}
+
+// GetSomeday returns all tasks and projects in the someday list (excluding those with a scheduled date)
+func (db *DB) GetSomeday() (*SomedayResult, error) {
+	result := &SomedayResult{}
+
+	// Get someday tasks ordered by area index
+	// For tasks in projects, use the project's area; for standalone tasks, use their direct area
+	taskQuery := baseTaskQuery + `
 WHERE status = 0
   AND trashed = 0
   AND type = 0
   AND start = 2
   AND startDate IS NULL
-ORDER BY creationDate DESC
+  AND (project IS NULL OR project NOT IN (SELECT uuid FROM TMTask WHERE trashed = 1))
+  AND (area IS NULL OR area NOT IN (SELECT uuid FROM TMArea WHERE trashed = 1))
+  AND (heading IS NULL OR heading NOT IN (SELECT uuid FROM TMTask WHERE type = 2 AND project IN (SELECT uuid FROM TMTask WHERE trashed = 1)))
+ORDER BY
+  COALESCE(
+    (SELECT [index] FROM TMArea WHERE uuid = TMTask.area),
+    (SELECT [index] FROM TMArea WHERE uuid = (SELECT area FROM TMTask AS p WHERE p.uuid = TMTask.project)),
+    999999
+  ) ASC,
+  title ASC
 `
-	rows, err := db.conn.Query(query)
+	rows, err := db.conn.Query(taskQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query someday tasks: %w", err)
 	}
-	defer rows.Close()
-	return db.scanTasks(rows)
+	result.Tasks, err = db.scanTasks(rows)
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get someday projects ordered by area index
+	projectQuery := baseTaskQuery + `
+WHERE status = 0
+  AND trashed = 0
+  AND type = 1
+  AND start = 2
+  AND startDate IS NULL
+  AND (area IS NULL OR area NOT IN (SELECT uuid FROM TMArea WHERE trashed = 1))
+ORDER BY
+  COALESCE((SELECT [index] FROM TMArea WHERE uuid = TMTask.area), 999999) ASC,
+  title ASC
+`
+	projRows, err := db.conn.Query(projectQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query someday projects: %w", err)
+	}
+	result.Projects, err = db.scanTasks(projRows)
+	projRows.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 // GetProjects returns all active projects
@@ -410,9 +464,9 @@ ORDER BY title ASC
 	return db.scanTasks(rows)
 }
 
-// GetAreas returns all areas
+// GetAreas returns all areas ordered by their index in Things
 func (db *DB) GetAreas() ([]Area, error) {
-	query := `SELECT uuid, title FROM TMArea ORDER BY title ASC`
+	query := `SELECT uuid, title FROM TMArea ORDER BY [index] ASC`
 	rows, err := db.conn.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query areas: %w", err)
@@ -684,7 +738,7 @@ func (db *DB) GetStats() (*Stats, error) {
 		{fmt.Sprintf("SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type IN (0,1) AND (todayIndexReferenceDate = %d OR (startDate IS NOT NULL AND startDate <= %d))", todayValue, todayValue), &stats.Today},
 		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND startDate IS NOT NULL", &stats.Upcoming},
 		{"SELECT (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 1 AND startDate IS NULL AND project IS NULL AND heading IS NULL) + (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 1 AND start = 1 AND startDate IS NULL)", &stats.Anytime},
-		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 2 AND startDate IS NULL", &stats.Someday},
+		{"SELECT (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 2 AND startDate IS NULL AND (project IS NULL OR project NOT IN (SELECT uuid FROM TMTask WHERE trashed = 1)) AND (area IS NULL OR area NOT IN (SELECT uuid FROM TMArea WHERE trashed = 1)) AND (heading IS NULL OR heading NOT IN (SELECT uuid FROM TMTask WHERE type = 2 AND project IN (SELECT uuid FROM TMTask WHERE trashed = 1)))) + (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 1 AND start = 2 AND startDate IS NULL AND (area IS NULL OR area NOT IN (SELECT uuid FROM TMArea WHERE trashed = 1)))", &stats.Someday},
 		{"SELECT COUNT(*) FROM TMTask WHERE status = 3 AND trashed = 0 AND type = 0", &stats.Completed},
 		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 1", &stats.Projects},
 		{"SELECT COUNT(*) FROM TMArea", &stats.Areas},
