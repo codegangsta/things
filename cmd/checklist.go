@@ -197,8 +197,9 @@ func setChecklistItemStatus(taskID string, index int, completed bool, token stri
 	// Build the update payload
 	updatePayload := []map[string]interface{}{
 		{
-			"type": "to-do",
-			"id":   taskID,
+			"type":      "to-do",
+			"operation": "update",
+			"id":        taskID,
 			"attributes": map[string]interface{}{
 				"checklist-items": jsonItems,
 			},

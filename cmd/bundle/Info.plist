@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>applet</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.codegangsta.things-cli-callback</string>
+    <key>CFBundleName</key>
+    <string>Things CLI Callback</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>things-cli</string>
+            </array>
+            <key>CFBundleURLName</key>
+            <string>Things CLI Callback</string>
+        </dict>
+    </array>
+    <key>LSBackgroundOnly</key>
+    <true/>
+    <key>LSUIElement</key>
+    <true/>
+</dict>
+</plist>
