@@ -12,18 +12,27 @@ import (
 
 // TaskDetail holds detailed task information for output
 type TaskDetail struct {
-	UUID      string   `json:"uuid"`
-	Title     string   `json:"title"`
-	Notes     string   `json:"notes,omitempty"`
-	Type      string   `json:"type"`
-	Status    string   `json:"status"`
-	Start     string   `json:"start"`
-	StartDate string   `json:"start_date,omitempty"`
-	Deadline  string   `json:"deadline,omitempty"`
-	Project   string   `json:"project,omitempty"`
-	Area      string   `json:"area,omitempty"`
-	Tags      []string `json:"tags,omitempty"`
-	CreatedAt string   `json:"created_at"`
+	UUID           string                `json:"uuid"`
+	Title          string                `json:"title"`
+	Notes          string                `json:"notes,omitempty"`
+	Type           string                `json:"type"`
+	Status         string                `json:"status"`
+	Start          string                `json:"start"`
+	StartDate      string                `json:"start_date,omitempty"`
+	Deadline       string                `json:"deadline,omitempty"`
+	Project        string                `json:"project,omitempty"`
+	Area           string                `json:"area,omitempty"`
+	Tags           []string              `json:"tags,omitempty"`
+	CreatedAt      string                `json:"created_at"`
+	ChecklistItems []ChecklistItemDetail `json:"checklist_items,omitempty"`
+	Tasks          []TaskDetail          `json:"tasks,omitempty"`
+}
+
+// ChecklistItemDetail holds checklist item information for JSON output
+type ChecklistItemDetail struct {
+	UUID   string `json:"uuid"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
 }
 
 var getCmd = &cobra.Command{
@@ -143,7 +152,63 @@ func outputTaskDetail(cmd *cobra.Command, task *db.Task) error {
 		detail.Tags = append(detail.Tags, tag.Title)
 	}
 
+	// For JSON output, include nested data (checklist items for tasks, tasks for projects)
 	if jsonOutput {
+		if task.Type == 1 { // Project - include tasks
+			tasks, err := database.GetAllTasksInProject(uuid)
+			if err != nil {
+				return fmt.Errorf("failed to get project tasks: %w", err)
+			}
+			for _, t := range tasks {
+				taskTags, _ := database.GetTaskTags(t.UUID)
+				tagStrs := make([]string, len(taskTags))
+				for i, tag := range taskTags {
+					tagStrs[i] = tag.Title
+				}
+				taskDetail := TaskDetail{
+					UUID:   t.UUID,
+					Title:  t.Title,
+					Type:   "task",
+					Status: formatStatus(t.Status),
+					Start:  formatStartType(t.Start),
+					Tags:   tagStrs,
+				}
+				if t.Notes.Valid {
+					taskDetail.Notes = t.Notes.String
+				}
+				if t.StartDate.Valid {
+					taskDetail.StartDate = formatThingsDate(t.StartDate.Int64)
+				}
+				if t.Deadline.Valid {
+					taskDetail.Deadline = formatThingsDate(t.Deadline.Int64)
+				}
+				if t.CreationDate.Valid {
+					taskDetail.CreatedAt = formatTimestamp(t.CreationDate.Float64)
+				}
+				// Include checklist items for each task
+				items, _ := database.GetChecklistItems(t.UUID)
+				for _, item := range items {
+					taskDetail.ChecklistItems = append(taskDetail.ChecklistItems, ChecklistItemDetail{
+						UUID:   item.UUID,
+						Title:  item.Title,
+						Status: formatStatus(item.Status),
+					})
+				}
+				detail.Tasks = append(detail.Tasks, taskDetail)
+			}
+		} else if task.Type == 0 { // Task - include checklist items
+			items, err := database.GetChecklistItems(uuid)
+			if err != nil {
+				return fmt.Errorf("failed to get checklist items: %w", err)
+			}
+			for _, item := range items {
+				detail.ChecklistItems = append(detail.ChecklistItems, ChecklistItemDetail{
+					UUID:   item.UUID,
+					Title:  item.Title,
+					Status: formatStatus(item.Status),
+				})
+			}
+		}
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(detail)
 	}
 
@@ -260,6 +325,20 @@ func formatThingsDate(date int64) string {
 	// Convert day of year to month/day
 	t := time.Date(int(year), 1, 1, 0, 0, 0, 0, time.Local).AddDate(0, 0, int(dayOfYear)-1)
 	return t.Format("2006-01-02")
+}
+
+// formatStartType converts a start type to a string
+func formatStartType(start db.StartType) string {
+	switch start {
+	case db.StartTypeNotStarted:
+		return "not_started"
+	case db.StartTypeToday:
+		return "today"
+	case db.StartTypeSomeday:
+		return "someday"
+	default:
+		return "unknown"
+	}
 }
 
 func init() {
