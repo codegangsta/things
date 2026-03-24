@@ -218,18 +218,16 @@ func todayStartDate() int64 {
 
 // GetToday returns all tasks scheduled for today
 func (db *DB) GetToday() ([]Task, error) {
-	todayValue := todayStartDate()
 	query := baseTaskQuery + `
 WHERE status = 0
   AND trashed = 0
   AND type IN (0, 1)
-  AND (
-    todayIndexReferenceDate = ?
-    OR (startDate IS NOT NULL AND startDate <= ?)
-  )
+  AND start = 1
+  AND todayIndexReferenceDate IS NOT NULL
+  AND (type = 1 OR (project IS NULL AND heading IS NULL))
 ORDER BY todayIndex ASC
 `
-	rows, err := db.conn.Query(query, todayValue, todayValue)
+	rows, err := db.conn.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query today tasks: %w", err)
 	}
@@ -729,13 +727,12 @@ func (db *DB) GetStats() (*Stats, error) {
 	stats := &Stats{}
 
 	// Get counts using efficient queries
-	todayValue := todayStartDate()
 	queries := []struct {
 		query string
 		dest  *int
 	}{
 		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 0 AND project IS NULL AND heading IS NULL", &stats.Inbox},
-		{fmt.Sprintf("SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type IN (0,1) AND (todayIndexReferenceDate = %d OR (startDate IS NOT NULL AND startDate <= %d))", todayValue, todayValue), &stats.Today},
+		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type IN (0,1) AND start = 1 AND todayIndexReferenceDate IS NOT NULL AND (type = 1 OR (project IS NULL AND heading IS NULL))", &stats.Today},
 		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND startDate IS NOT NULL", &stats.Upcoming},
 		{"SELECT (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 1 AND startDate IS NULL AND project IS NULL AND heading IS NULL) + (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 1 AND start = 1 AND startDate IS NULL)", &stats.Anytime},
 		{"SELECT (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 2 AND startDate IS NULL AND (project IS NULL OR project NOT IN (SELECT uuid FROM TMTask WHERE trashed = 1)) AND (area IS NULL OR area NOT IN (SELECT uuid FROM TMArea WHERE trashed = 1)) AND (heading IS NULL OR heading NOT IN (SELECT uuid FROM TMTask WHERE type = 2 AND project IN (SELECT uuid FROM TMTask WHERE trashed = 1)))) + (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 1 AND start = 2 AND startDate IS NULL AND (area IS NULL OR area NOT IN (SELECT uuid FROM TMArea WHERE trashed = 1)))", &stats.Someday},
