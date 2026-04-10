@@ -6,8 +6,8 @@ import (
 
 var searchCmd = &cobra.Command{
 	Use:   "search <query>",
-	Short: "Search tasks by title",
-	Long:  `Searches for tasks whose title contains the given query string.`,
+	Short: "Search tasks and projects by title",
+	Long:  `Searches for tasks and projects whose title contains the given query string.`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		query := args[0]

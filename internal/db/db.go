@@ -553,14 +553,14 @@ ORDER BY creationDate DESC
 	return db.scanTasks(rows)
 }
 
-// Search searches for tasks by title
+// Search searches for tasks and projects by title
 func (db *DB) Search(query string) ([]Task, error) {
 	sqlQuery := baseTaskQuery + `
 WHERE status = 0
   AND trashed = 0
-  AND type = 0
+  AND type IN (0, 1)
   AND title LIKE ?
-ORDER BY creationDate DESC
+ORDER BY type ASC, creationDate DESC
 `
 	rows, err := db.conn.Query(sqlQuery, "%"+query+"%")
 	if err != nil {
