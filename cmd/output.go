@@ -99,12 +99,12 @@ func padRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-w)
 }
 
-// decodeStartDate decodes Things 3 startDate format: (year << 16) + (dayOfYear+32)*128
+// decodeStartDate decodes Things 3 startDate format: (year << 16) | (month << 12) | (day << 7)
 func decodeStartDate(encoded int64) time.Time {
 	year := int(encoded >> 16)
-	dayOfYear := int((encoded&0xFFFF)/128) - 32
-	// Create date from year and day of year
-	return time.Date(year, 1, 1, 0, 0, 0, 0, time.Local).AddDate(0, 0, dayOfYear-1)
+	month := int((encoded >> 12) & 0xF)
+	day := int((encoded >> 7) & 0x1F)
+	return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.Local)
 }
 
 // formatWhen returns a human-readable "when" value for a task

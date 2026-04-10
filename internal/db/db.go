@@ -207,27 +207,41 @@ func (db *DB) scanTasks(rows *sql.Rows) ([]Task, error) {
 	return tasks, nil
 }
 
-// todayStartDate calculates today's startDate value in Things 3 format.
-// Things 3 encodes dates as: (year << 16) + (day_of_year + 32) * 128
-func todayStartDate() int64 {
-	now := time.Now()
-	year := int64(now.Year())
-	dayOfYear := int64(now.YearDay())
-	return (year << 16) + (dayOfYear+32)*128
+// thingsDateCode encodes a date using Things 3's packed integer format.
+// Format: (year << 16) | (month << 12) | (day << 7)
+func thingsDateCode(t time.Time) int64 {
+	year := int64(t.Year())
+	month := int64(t.Month())
+	day := int64(t.Day())
+	return (year << 16) | (month << 12) | (day << 7)
 }
 
-// GetToday returns all tasks scheduled for today
+// decodeThingsDateCode decodes Things 3 date code back to time.Time
+func decodeThingsDateCode(code int64) time.Time {
+	year := int((code >> 16))
+	month := int((code >> 12) & 0xF)
+	day := int((code >> 7) & 0x1F)
+	return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+}
+
+// todayStartDate calculates today's startDate value in Things 3 format.
+func todayStartDate() int64 {
+	return thingsDateCode(time.Now())
+}
+
+// GetToday returns all tasks scheduled for today (including overdue)
 func (db *DB) GetToday() ([]Task, error) {
+	todayCode := todayStartDate()
 	query := baseTaskQuery + `
 WHERE status = 0
   AND trashed = 0
   AND type IN (0, 1)
-  AND start = 1
-  AND todayIndexReferenceDate IS NOT NULL
+  AND startDate IS NOT NULL
+  AND startDate <= ?
   AND (type = 1 OR (project IS NULL AND heading IS NULL))
-ORDER BY todayIndex ASC
+ORDER BY startDate ASC, todayIndex ASC
 `
-	rows, err := db.conn.Query(query)
+	rows, err := db.conn.Query(query, todayCode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query today tasks: %w", err)
 	}
@@ -690,15 +704,15 @@ ORDER BY creationDate DESC
 
 // Stats holds aggregated task statistics
 type Stats struct {
-	Inbox        int `json:"inbox"`
-	Today        int `json:"today"`
-	Upcoming     int `json:"upcoming"`
-	Anytime      int `json:"anytime"`
-	Someday      int `json:"someday"`
-	Completed    int `json:"completed"`
-	Projects     int `json:"projects"`
-	Areas        int `json:"areas"`
-	Tags         int `json:"tags"`
+	Inbox     int `json:"inbox"`
+	Today     int `json:"today"`
+	Upcoming  int `json:"upcoming"`
+	Anytime   int `json:"anytime"`
+	Someday   int `json:"someday"`
+	Completed int `json:"completed"`
+	Projects  int `json:"projects"`
+	Areas     int `json:"areas"`
+	Tags      int `json:"tags"`
 }
 
 // ResolveProjectUUID takes a project identifier (UUID or name) and returns the project's UUID.
@@ -725,6 +739,7 @@ func (db *DB) ResolveProjectUUID(idOrName string) (string, error) {
 // GetStats returns aggregated counts for all lists
 func (db *DB) GetStats() (*Stats, error) {
 	stats := &Stats{}
+	todayCode := todayStartDate()
 
 	// Get counts using efficient queries
 	queries := []struct {
@@ -732,8 +747,8 @@ func (db *DB) GetStats() (*Stats, error) {
 		dest  *int
 	}{
 		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 0 AND project IS NULL AND heading IS NULL", &stats.Inbox},
-		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type IN (0,1) AND start = 1 AND todayIndexReferenceDate IS NOT NULL AND (type = 1 OR (project IS NULL AND heading IS NULL))", &stats.Today},
-		{"SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND startDate IS NOT NULL", &stats.Upcoming},
+		{fmt.Sprintf("SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type IN (0,1) AND startDate IS NOT NULL AND startDate <= %d AND (type = 1 OR (project IS NULL AND heading IS NULL))", todayCode), &stats.Today},
+		{fmt.Sprintf("SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND startDate IS NOT NULL AND startDate > %d", todayCode), &stats.Upcoming},
 		{"SELECT (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 1 AND startDate IS NULL AND project IS NULL AND heading IS NULL) + (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 1 AND start = 1 AND startDate IS NULL)", &stats.Anytime},
 		{"SELECT (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 0 AND start = 2 AND startDate IS NULL AND (project IS NULL OR project NOT IN (SELECT uuid FROM TMTask WHERE trashed = 1)) AND (area IS NULL OR area NOT IN (SELECT uuid FROM TMArea WHERE trashed = 1)) AND (heading IS NULL OR heading NOT IN (SELECT uuid FROM TMTask WHERE type = 2 AND project IN (SELECT uuid FROM TMTask WHERE trashed = 1)))) + (SELECT COUNT(*) FROM TMTask WHERE status = 0 AND trashed = 0 AND type = 1 AND start = 2 AND startDate IS NULL AND (area IS NULL OR area NOT IN (SELECT uuid FROM TMArea WHERE trashed = 1)))", &stats.Someday},
 		{"SELECT COUNT(*) FROM TMTask WHERE status = 3 AND trashed = 0 AND type = 0", &stats.Completed},
